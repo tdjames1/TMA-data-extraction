@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Default location of pdf-parser.py
-PDF_PARSER=pdf-parser.py
-
 E_NOARGS=65
 E_NODIR=67
 
@@ -10,6 +7,14 @@ if [ -z "$1" ]
 then
   echo "Usage: `basename $0` file"
   exit $E_NOARGS
+fi
+
+if [ -z ${PDF_PARSER_ROOT:+x} ]
+then
+    # If not set or set but NULL, assume script is in current directory
+    PDF_PARSER=./pdf-parser.py
+else
+    PDF_PARSER=${PDF_PARSER_ROOT}/pdf-parser.py
 fi
 
 # Get cleaned up filename
