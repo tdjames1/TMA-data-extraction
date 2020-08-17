@@ -11,11 +11,13 @@ import matplotlib.patches as mpatches
 import PIL
 
 PDF_GS_OPS = {
-    'g': 'setgray',
+    'g': 'setgray (nonstroke)',
+    'G': 'setgray (stroke)',
     'gs': 'setgraphicsstate',
     'j': 'setlinejoin',
     'M': 'setmiterlimit',
-    'rg': 'setrgbcolor',
+    'rg': 'setrgbcolor (nonstroke)',
+    'RG': 'setrgbcolor (stroke)',
     'q': 'gsave',
     'Q': 'grestore',
     'w': 'setlinewidth',
@@ -81,8 +83,8 @@ def processBlock(lines):
             if path_is_open:
                 print("[PATH] append line segment")
                 next_xy = np.array(s[:-1], dtype = float)
-                line = appendCurve(current, next_xy)
-                line_collection.append(line)
+                curve = appendCurve(current, next_xy)
+                line_collection.append(curve)
                 current = next_xy
                 vertices.append(current)
             else:
@@ -122,6 +124,33 @@ def processBlock(lines):
                 print("[PATH] unknown operator: " + op)
     centroid = getCentroid(vertices)
     return {'contour': line_collection, 'centroid': centroid}
+
+def processColour(line):
+    colour = { 'stroke': { 'type': None, 'val': '' },
+               'nonstroke': { 'type': None, 'val': '' } }
+    s = line.split()
+    if not len(s):
+        return
+    op = s[-1]
+    if op.lower() == "rg":
+        print("[COLOUR] got set RGB colour operator", op)
+        print(s)
+        if (len(s) > 4):
+            s = s[len(s)-4:]
+        otype = 'stroke' if op == "RG" else 'nonstroke'
+        colour[otype]['type'] = 'rgb'
+        colour[otype]['val'] = np.array(s[:-1], dtype = float)
+
+    elif op.lower() == "g":
+        print("[PATH] got set gray operator", op)
+        print(s)
+        if (len(s) > 2):
+            s = s[len(s)-2:]
+        otype = 'stroke' if op == "G" else 'nonstroke'
+        colour[otype]['type'] = 'gs'
+        colour[otype]['val'] = np.array(s[:-1], dtype = float)
+
+    return colour
 
 def processImage(lines):
     #print(list(line.rstrip() for line in lines))
@@ -205,7 +234,7 @@ def createPlot(images, contours):
     _ = ax.set_aspect(1)
     plt.show()
 
-def getMapGroups(images, contours):
+def getMapGroups(images, graphics):
 
     map_groups = []
     for i in range(len(images)):
@@ -224,17 +253,17 @@ def getMapGroups(images, contours):
             size_check = w > 120
 
             if pos_check & size_check:
-                # Get contours within map boundary
-                contour_list = []
-                for contour in contours:
-                    ix, iy = contour['centroid']
+                # Get graphics within map boundary
+                graphics_list = []
+                for gfx in graphics:
+                    ix, iy = gfx['path']['centroid']
                     #print("Centroid: ", ix, ",", iy)
                     x_check = (x < ix) & (ix < x + w)
                     y_check = (y < iy) & (iy < y + h)
                     if x_check & y_check:
-                        contour_list.append(contour)
-                #print("Got contours:", len(contour_list))
-                map_groups.append((img, contour_list))
+                        graphics_list.append(gfx)
+                #print("Got graphics:", len(graphics_list))
+                map_groups.append((img, graphics_list))
 
             def getXPos(mg):
                 return mg[0]['ctm'][4]
@@ -243,7 +272,7 @@ def getMapGroups(images, contours):
     return map_groups
 
 def plotMapGroup(map_group, ax):
-    img, contours = map_group
+    img, graphics = map_group
 
     print("Image:", img['name'])
 
@@ -268,9 +297,27 @@ def plotMapGroup(map_group, ax):
     #                [28.405,-12,   1]])
 
     n_col = len(plt.rcParams['axes.prop_cycle'])
-    print("Processing contours:", len(contours))
-    for i in range(len(contours)):
-        for curve in contours[i]['contour']:
+    col = "C" + str(i%n_col)
+    print("Processing graphics:", len(graphics))
+    for i in range(len(graphics)):
+        if graphics[i]['colour'] is not None:
+            #print("got colour state:", graphics[i]['colour'])
+            # Get stroke colour specification
+            col_spec = graphics[i]['colour']['stroke']
+            if col_spec['type'] is None:
+                fill_col = graphics[i]['colour']['nonstroke']
+                if fill_col['type'] == 'rgb':
+                    # Use fill colour specification
+                    col_spec = fill_col
+            if col_spec['type'] == 'rgb':
+                # Set rgb colour
+                col = tuple(col_spec['val'])
+            elif col_spec['type'] == 'gs':
+                # Set grayscale colour
+                col = tuple(col_spec['val']) * 3
+            else:
+                col = (0.,0.,0.)
+        for curve in graphics[i]['path']['contour']:
             ## Relocate curve according to new coordinate system
             nodes = curve.nodes
             nodes_new = []
@@ -281,9 +328,9 @@ def plotMapGroup(map_group, ax):
                 nodes_new.append(v2[:-1])
             nodes = np.array(nodes_new).T
             curve = bezier.Curve.from_nodes(nodes)
-            _ = curve.plot(num_pts = 256, color = "C" + str(i%n_col), ax = ax)
+            _ = curve.plot(num_pts = 256, color = col, ax = ax)
         # plot centroid i
-        # cx, cy = contours[i]['centroid']
+        # cx, cy = graphics[i]['path']['centroid']
         # plt.plot(cx, cy, "o")
 
     # Get position and scaling for display on rescaled coordinate system
@@ -324,9 +371,11 @@ def main():
 
     path_ops = {'m', 'c', 'l'}
     term_ops = {'f*', 'S', 'n', 'h'}
+    col_ops = {'rg', 'RG', 'g', 'G'}
     block = []
     graphics = []
     images = []
+    col = None
     # Iterate over the lines
     for line in lines:
         if line.endswith(tuple(path_ops)):
@@ -337,8 +386,11 @@ def main():
             block.append(line)
             path = processBlock(list(block))
             if len(path['contour']):
-                graphics.append(path)
+                graphics.append({'path': path, 'colour': col})
             del block[:]
+        elif line.endswith(tuple(col_ops)):
+            block.append(line)
+            col = processColour(line)
         elif "Do" in line:
             #print("got image operator")
             block.append(line)
@@ -350,7 +402,7 @@ def main():
             block.append(line)
 
     print(len(graphics))
-    print(len(graphics[0]))
+    print(len(graphics[0]['path']))
     print(len(images))
 
     mgroups = getMapGroups(images, graphics)
