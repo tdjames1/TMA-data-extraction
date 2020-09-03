@@ -8,7 +8,10 @@ import numpy.linalg as LA
 import bezier
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import PIL
+
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import cartopy.io.shapereader as shpreader
 
 PDF_GS_OPS = {
     'g': 'setgray (nonstroke)',
@@ -26,6 +29,9 @@ PDF_GS_OPS = {
 }
 
 MAP_IMG = "../resources/TZA_map.png"
+
+# Extent of original map image when matched to PlateCarree projection
+extent_MAP_IMG = [28.405, 41.475, -12., -0.745]
 
 def readFile(fp):
     with open(fp) as f:
@@ -276,30 +282,29 @@ def plotMapGroup(map_group, ax):
 
     print("Image:", img['name'])
 
-    # Construct transformation matrix
+    # Construct current transformation matrix for image
     #   a b 0 
     #   c d 0
     #   e f 1
-    m = np.hstack((img['ctm'].reshape(3,2), np.array([[0],[0],[1]])))
+    m1 = np.hstack((img['ctm'].reshape(3,2), np.array([[0],[0],[1]])))
     try:
-        m_inv = LA.inv(m)
+        m1_inv = LA.inv(m1)
     except LinAlgError:
         sys.exit("Could not invert transformation matrix")
 
-    # Create new transformation matrix for coordinate system that
-    # displays canonical map using the size of the original image and
-    # position at origin
-    dim = PIL.Image.open(MAP_IMG).size
-    m2 = np.array([[dim[0],0,0],[0,dim[1],0],[0,0,1]])
-    # FIXME transform from canonical image coords to PlateCarree projection:
-    # m3 = np.array([[13.07, 0,     0],
-    #                [0,     11.255,0],
-    #                [28.405,-12,   1]])
+    # Create transformation matrix to map from canonical image coords
+    # to extent of original map image matched to PlateCarree projection
+    lon_min, lon_max, lat_min, lat_max = extent_MAP_IMG
+    tm = np.array([lon_max - lon_min, 0, 0, lat_max - lat_min, lon_min, lat_min])
+    m2 = np.hstack((tm.reshape(3,2), np.array([[0],[0],[1]])))
+
+    # Pre-multiply transformation matrices
+    m = np.matmul(m1_inv, m2)
 
     n_col = len(plt.rcParams['axes.prop_cycle'])
-    col = "C" + str(i%n_col)
     print("Processing graphics:", len(graphics))
     for i in range(len(graphics)):
+        col = "C" + str(i%n_col)
         if graphics[i]['colour'] is not None:
             #print("got colour state:", graphics[i]['colour'])
             # Get stroke colour specification
@@ -322,36 +327,19 @@ def plotMapGroup(map_group, ax):
             nodes = curve.nodes
             nodes_new = []
             for i in range(len(nodes.T)):
-                v = np.append(nodes.T[i], 1)
-                v1 = np.matmul(v, m_inv)
-                v2 = np.matmul(m2, v1.T).flatten()
-                nodes_new.append(v2[:-1])
+                # Multiply node by combined transformation matrix m to
+                # get coordinates with respect to image space and
+                # transform from canonical image coords to PlateCarree
+                # map projection
+                v = np.matmul(np.append(nodes.T[i], 1), m)
+                nodes_new.append(v[:-1])
             nodes = np.array(nodes_new).T
             curve = bezier.Curve.from_nodes(nodes)
             _ = curve.plot(num_pts = 256, color = col, ax = ax)
         # plot centroid i
-        # cx, cy = graphics[i]['path']['centroid']
-        # plt.plot(cx, cy, "o")
+        # cx, cy, _ = np.matmul(np.append(graphics[i]['path']['centroid'], 1), m)
+        # ax.plot(cx, cy, "o")
 
-    # Get position and scaling for display on rescaled coordinate system
-    #   w 0 0 
-    #   0 h 0
-    #   x y 1
-    ctm = m2
-    w, h = ctm[:2,:2].diagonal()
-    x, y  = ctm[2,:2]
-    print("Position:", x, ",", y)
-    print("Size:", w, "x", h)
-
-    arr_img = plt.imread(MAP_IMG, format='png')
-    ax.imshow(arr_img, interpolation='none',
-              origin='upper',
-                      extent=[x, x+w, y, y+h], 
-                      clip_on=True)
-
-    _ = ax.set_xlim(x, x+w)
-    _ = ax.set_ylim(y, y+h)
-    _ = ax.set_aspect(1)
     ## end of plotMapGroup()
 
 # Main
@@ -407,9 +395,26 @@ def main():
 
     mgroups = getMapGroups(images, graphics)
 
+    # Downloaded from https://biogeo.ucdavis.edu/data/gadm3.6/shp/gadm36_TZA_shp.zip
+    shp_fname = '../../mapping/gadm/shapefile/gadm36_TZA_1.shp'
+    adm1_shapes = list(shpreader.Reader(shp_fname).geometries())
+
     #createPlot(images, graphics)
-    fig, axs = plt.subplots(1, 4)
+    fig, axs = plt.subplots(1, 4, subplot_kw={'projection': ccrs.PlateCarree()})
     for mg, ax in zip(mgroups, axs.flat):
+
+        ax.set_extent(extent_MAP_IMG, ccrs.PlateCarree())
+        ax.coastlines(resolution='10m')
+        ax.add_feature(cfeature.LAND)
+        ax.add_feature(cfeature.LAKES, alpha=0.5)
+        ax.add_geometries(adm1_shapes, ccrs.PlateCarree(),
+                          edgecolor='black', facecolor='gray', alpha=0.5)
+        arr_img = plt.imread(MAP_IMG, format='png')
+        ax.imshow(arr_img, interpolation='none',
+                  origin='upper',
+                  extent=extent_MAP_IMG,
+                  clip_on=True)
+
         plotMapGroup(mg, ax)
     plt.show()
     ## end of main()
