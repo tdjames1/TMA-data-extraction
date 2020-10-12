@@ -47,16 +47,18 @@ filename=${filename// /_}
 echo "Processing file: $filename"
 
 get_pages() {
-    python ${PDF_PARSER} -a "$1" | grep "\Page " | cut -d ':' -f 2 | cut -d',' -f1- --output-delimiter=''
+    pages_objnum=$(python ${PDF_PARSER} -a "$1" | grep "/Pages " | cut -d ':' -f2)
+    python ${PDF_PARSER} -o $pages_objnum "$1" | grep -m1 "/Kids" | cut -d'[' -f2 | cut -d']' -f1 | sed -e 's/ 0 R//g'
 }
 
 # Get pages for parsing
 pnum=1
 for page_ref in $(get_pages "$1")
 do
-    # Get object number for page contents
-    objnum=$(python ${PDF_PARSER} -o $page_ref "$1" | grep "/Contents" | cut -c15- | cut -d' ' -f1)
-    echo "$objnum"
+    # Get object number for page contents (in the case of multiply
+    # defined pages, just use the first)
+    objnum=$(python ${PDF_PARSER} -o $page_ref "$1" | grep -m1 "/Contents" | cut -c15- | cut -d' ' -f1)
+    #echo "$objnum"
     outfile="${out_dir}${filename}_page${pnum}.txt"
     echo "Writing page data to: $outfile"
     python ${PDF_PARSER} -o $objnum -f -d $outfile "$1" >/dev/null
