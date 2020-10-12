@@ -463,7 +463,7 @@ def getAlertMasks(map_group):
     return mask_list
     ## end
 
-def createGriddedData(map_groups, alert_data):
+def createGriddedData(map_groups, alert_data, file_path=None):
     # container for gridded data layers
     vars = {}
 
@@ -556,7 +556,9 @@ def createGriddedData(map_groups, alert_data):
                         'title': 'TMA weather warnings for ' + issue_date,
                         'issue_date': issue_date,
                     })
-    ds.to_netcdf('TMA_weather_warning_'+issue_date+'.nc')
+    if file_path is None:
+        file_path = 'TMA_weather_warning_'+issue_date+'.nc'
+    ds.to_netcdf(file_path)
     ## end
 
 # Main
@@ -614,10 +616,14 @@ def main():
     mgroups = getMapGroups(images, graphics)
     mgroups = [transformMapGroup(mg) for mg in mgroups]
 
-    # Get associated data - one row per forecast date
-    alert_data = pd.read_csv(args.metadata[0])
-
-    createGriddedData(mgroups, alert_data)
+    try:
+        # Get associated data - one row per forecast date
+        alert_data = pd.read_csv(args.metadata[0])
+    except FileNotFoundError:
+        print("Couldn't read metadata file:", args.metadata[0])
+    else:
+        fn = args.metadata[0].split(".")[0].split("/")[-1] + ".nc"
+        createGriddedData(mgroups, alert_data, fn)
 
     # am = getAlertMasks(mgroups[0])
     # #fig, axs = plt.subplots(1, len(am))
