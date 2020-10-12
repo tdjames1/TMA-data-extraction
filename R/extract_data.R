@@ -61,6 +61,11 @@ extract_data <- function(file_path, out_dir = NULL) {
     ## Get positions of columns
     pos <- dplyr::filter(data[[2]], text %in% weekdays(issue_date + 1:4))
     pos <- dplyr::mutate(pos, diff_x = c(diff(x), Inf))
+    if (nrow(pos) < 4) {
+        warning(paste("Couldn't find four subsequent weekdays following issue date:",
+                      format(issue_date, format = "%Y-%m-%d")))
+        return()
+    }
 
     ## Get y position of targeted string
     locate_text_y <- function(data, text) {
