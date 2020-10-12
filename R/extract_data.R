@@ -28,6 +28,12 @@ extract_data <- function(file_path, out_dir = NULL) {
         dir.create(out_dir)
     }
 
+    file_str <- stringr::str_split(file_path, "[/.]")[[1]]
+    file_prefix <- stringr::str_replace_all(file_str[length(file_str)-1], " ", "_")
+    if (!is.null(out_dir)) {
+        file_prefix <- paste(out_dir, file_prefix, sep = "/")
+    }
+
     ## Extract raw text, find issue date
     text <- pdftools::pdf_text(file_path)
     pos <- stringr::str_locate(text, "Issued on")
@@ -44,10 +50,6 @@ extract_data <- function(file_path, out_dir = NULL) {
 
     issue_date <- as.Date(matches[2], format = "%d-%m-%Y")
     message(paste("Severe weather warnings issued on:", issue_date))
-
-    if (!is.null(out_dir)) {
-        file_prefix <- paste(out_dir, format(issue_date, format = "%Y-%m-%d"), sep = "/")
-    }
 
     ## Extract positioned text, search for position of alert columns
     data <- pdftools::pdf_data(file_path)
@@ -127,7 +129,7 @@ extract_data <- function(file_path, out_dir = NULL) {
                                    by = c("weekday" = "text"))
 
     if (!is.null(out_dir)) {
-        write.csv(alert_data, paste(file_prefix, "alert_data.csv", sep = "_"))
+        write.csv(alert_data, paste0(file_prefix, ".csv"))
     }
 
     return(alert_data)
