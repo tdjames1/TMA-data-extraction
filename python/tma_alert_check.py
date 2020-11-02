@@ -222,12 +222,13 @@ def main():
         # write to file
         nc.close()
 
-        msg = "Finished reviewing warnings for {:"+out_fmt+"}. Continue (y/)n? "
+        msg = "Finished reviewing warnings for {:"+out_fmt+"}. Continue (y/n)? "
         opt = ('y', 'n')
         ctn = check_value(msg.format(issue_dt), opt)
         if ctn == "n":
-            break
+            return
 
+    print("Finished reviewing TMA weather warning data")
     # end of main()
 
 # Run main
