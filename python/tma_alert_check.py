@@ -103,10 +103,14 @@ def check_alert_level(nc, var):
 
 def check_alert_type(nc, var):
     alert_type = nc[var].getncattr('alert_type')
-    msg = "Alert type is {:s}. Accept (y/n)? ".format(alert_type)
-    opt = ('y', 'n')
-    accept_type = check_value(msg, opt)
+    accept_type = "n"
+    if alert_type:
+        msg = "Alert type is {:s}. Accept (y/n)? ".format(alert_type)
+        opt = ('y', 'n')
+        accept_type = check_value(msg, opt)
     if accept_type == "n":
+        if not alert_type:
+            alert_type = "not set"
         msg = (
             "Alert type is {:s}. Select type: w(ind)/r(ain)/t(idal)/o(ther): "
             .format(alert_type)
