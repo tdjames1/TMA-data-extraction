@@ -69,7 +69,7 @@ def readFile(fp):
 def extractGraphics(lines):
 
     path_ops = {'m', 'c', 'l'}
-    term_ops = {'f*', 'S', 'n', 'h'}
+    term_ops = {'f*', 'S', 'n'}
     col_ops = {'rg', 'RG', 'g', 'G'}
     block = []
     graphics = []
@@ -128,7 +128,7 @@ def processBlock(lines):
     controls = []
     vertices = []
     line_collection = []
-    draw_filled_area = False
+    draw_filled_area = True
     for line in lines:
         s = line.split()
         if not len(s):
@@ -177,12 +177,12 @@ def processBlock(lines):
             print("[PATH] end path without fill or stroke")
             path_is_open = False
             del line_collection[:]
-            #break
+            break
         elif op == "h":
-            print("[PATH] close path")
+            print("[PATH] close subpath")
             if path_is_open:
                 if (current - start_xy).any():
-                    print("[PATH] append line segment to close path")
+                    print("[PATH] append line segment to close subpath")
                     line = appendCurve(current, start_xy)
                     line_collection.append(line)
                     current = start_xy
@@ -190,7 +190,6 @@ def processBlock(lines):
                     path_is_open = False
             else:
                 print("[PATH] current path is not open to close path")
-            break
         else:
             if op in PDF_GS_OPS.keys():
                 print("[PATH] got operator: " + op + " = " + PDF_GS_OPS[op])
@@ -343,15 +342,16 @@ def getMapGroups(images, graphics):
                             # Check whether colour and contour are the
                             # same as previously stored graphics
                             found_match = False
-                            nodes = np.vstack([c.nodes for c in gfx['path']['contour']])
+                            nodes = np.hstack([np.hstack(c.nodes) for c in gfx['path']['contour']])
                             for g in graphics_dict[(ix, iy)]:
-                                n = np.vstack([c.nodes for c in g['path']['contour']])
+                                n = np.hstack([np.hstack(c.nodes) for c in g['path']['contour']])
                                 if (nodes == n).all():
                                     # nodes match, what about colours?
                                     col = gfx['colour']
                                     c = g['colour']
                                     if col['col_spec'] == c['col_spec'] and np.array_equal(getColourValue(col), getColourValue(c)):
                                         found_match = True
+                                        break
                             if not found_match:
                                 graphics_dict[(ix, iy)].append(gfx)
                 print("Graphics with distinct centroids:", len(graphics_dict))
@@ -574,7 +574,6 @@ def createGriddedData(map_groups, alert_data, file_path=None):
         for j, gfx in enumerate(graphics):
             colour = gfx['path']['colour']
             print(colour)
-            #breakpoint()
             col = None
             if colour['stroke'] is not None and len(colour['stroke']) == 3:
                 col = colour['stroke']
