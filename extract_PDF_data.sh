@@ -31,7 +31,7 @@ fi
 if [ -z ${PDF_PARSER_ROOT:+x} ]
 then
     # If not set or set but NULL, assume script is in current directory
-    export PDF_PARSER_ROOT=$(getcwd)
+    export PDF_PARSER_ROOT=$(pwd)
 fi
 
 # Set up temporary data for intermediate files and specify log file

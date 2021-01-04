@@ -1,7 +1,30 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""tma_process_content
+.. module:: TMA-data-extraction
+    :synopis: Scripts and functions for extracting weather alert data
+    from Tanzanian Meteorological Authority "Five days Severe weather
+    impact-based forecasts" PDFs.
+.. moduleauthor: Tamora D. James <t.d.james1@leeds.ac.uk>, CEMAC (UoL)
+.. description: This module was developed by CEMAC as part of the GCRF
+    African Swift Project. This script processes page contents and
+    metadata extracted from Tanzanian Meteorological Authority "Five days
+    Severe weather impact-based forecasts" PDFs and produces a netCDF4
+    file containing gridded weather alert data.
+   :copyright: © 2020 University of Leeds.
+   :license: BSD 3-clause (see LICENSE)
+Example:
+    To use::
+        ./tma_process_content <path/to/page2_content.txt> <path/to/metadata.csv>
+        <path/to/page2_content.txt> - Path to content extracted from page 2 of TMA weather forecast PDF
+        <path/to/metadata.csv> - Path to CSV containing text metadata extracted from page 2 of TMA weather forecast PDF
+.. CEMAC_cemac_generic:
+   https://github.com/cemac/cemac_generic
+"""
 
 import sys
 import argparse
+import os
 
 import numpy as np
 import numpy.linalg as LA
@@ -42,6 +65,46 @@ def readFile(fp):
     with open(fp) as f:
         lines = [line.rstrip() for line in f]
     return lines
+
+def extractGraphics(lines):
+
+    path_ops = {'m', 'c', 'l'}
+    term_ops = {'f*', 'S', 'n', 'h'}
+    col_ops = {'rg', 'RG', 'g', 'G'}
+    block = []
+    graphics = []
+    images = []
+    col = None
+    # Iterate over the lines
+    for line in lines:
+        if line.endswith(tuple(path_ops)):
+            #print("got path operator")
+            block.append(line)
+        elif line.endswith(tuple(term_ops)):
+            #print("got terminating path operator")
+            block.append(line)
+            path = processBlock(list(block))
+            if len(path['contour']):
+                graphics.append({'path': path, 'colour': col})
+            del block[:]
+        elif line.endswith(tuple(col_ops)):
+            block.append(line)
+            col = processColour(line)
+        elif "Do" in line:
+            #print("got image operator")
+            block.append(line)
+            image = processImage(list(block))
+            if len(image):
+                images.append(image)
+            del block[:]
+        else:
+            block.append(line)
+
+    # print(len(graphics))
+    # print(len(graphics[0]['path']))
+    # print(len(images))
+
+    return [images, graphics]
 
 def appendCurve(start, controls):
     nodes = np.concatenate((start, controls))
@@ -137,8 +200,7 @@ def processBlock(lines):
     return {'contour': line_collection, 'centroid': centroid}
 
 def processColour(line):
-    colour = { 'stroke': { 'type': None, 'val': '' },
-               'nonstroke': { 'type': None, 'val': '' } }
+    col = None
     s = line.split()
     if not len(s):
         return
@@ -148,20 +210,22 @@ def processColour(line):
         print(s)
         if (len(s) > 4):
             s = s[len(s)-4:]
-        otype = 'stroke' if op == "RG" else 'nonstroke'
-        colour[otype]['type'] = 'rgb'
-        colour[otype]['val'] = np.array(s[:-1], dtype = float)
+        otype = 'stroke' if op == "RG" else 'fill'
+        col = {'type': otype,
+               'col_spec': 'rgb',
+               'val': np.array(s[:-1], dtype = float) }
 
     elif op.lower() == "g":
         print("[PATH] got set gray operator", op)
         print(s)
         if (len(s) > 2):
             s = s[len(s)-2:]
-        otype = 'stroke' if op == "G" else 'nonstroke'
-        colour[otype]['type'] = 'gs'
-        colour[otype]['val'] = np.array(s[:-1], dtype = float)
+        otype = 'stroke' if op == "G" else 'fill'
+        col = { 'type': otype,
+                'col_spec': 'gs',
+                'val': np.array(s[:-1], dtype = float) }
 
-    return colour
+    return col
 
 def processImage(lines):
     #print(list(line.rstrip() for line in lines))
@@ -265,8 +329,7 @@ def getMapGroups(images, graphics):
 
             if pos_check & size_check:
                 # Get graphics within map boundary
-                graphics_list = []
-                centroids = []
+                graphics_dict = {}
                 for gfx in graphics:
                     ix, iy = gfx['path']['centroid']
                     #print("Centroid: ", ix, ",", iy)
@@ -274,13 +337,25 @@ def getMapGroups(images, graphics):
                     y_check = (y < iy) & (iy < y + h)
                     if x_check & y_check:
                         print("Centroid: ", ix, ",", iy)
-                        if (ix, iy) not in centroids:
-                            graphics_list.append(gfx)
-                            centroids.append((ix, iy))
+                        if (ix, iy) not in graphics_dict.keys():
+                            graphics_dict[(ix, iy)] = [ gfx ]
                         else:
-                            print("Already added graphics with matching centroid")
-                #print("Got graphics:", len(graphics_list))
-                map_groups.append((img, graphics_list))
+                            # Check whether colour and contour are the
+                            # same as previously stored graphics
+                            found_match = False
+                            nodes = np.vstack([c.nodes for c in gfx['path']['contour']])
+                            for g in graphics_dict[(ix, iy)]:
+                                n = np.vstack([c.nodes for c in g['path']['contour']])
+                                if (nodes == n).all():
+                                    # nodes match, what about colours?
+                                    col = gfx['colour']
+                                    c = g['colour']
+                                    if col['col_spec'] == c['col_spec'] and np.array_equal(getColourValue(col), getColourValue(c)):
+                                        found_match = True
+                            if not found_match:
+                                graphics_dict[(ix, iy)].append(gfx)
+                print("Graphics with distinct centroids:", len(graphics_dict))
+                map_groups.append((img, graphics_dict))
 
             def getXPos(mg):
                 return mg[0]['ctm'][4]
@@ -288,8 +363,12 @@ def getMapGroups(images, graphics):
             map_groups.sort(key = getXPos)
     return map_groups
 
+def getColourValue(col):
+    if col is not None:
+        return tuple(col['val'])
+
 def transformMapGroup(map_group):
-    img, graphics = map_group
+    img, graphics_dict = map_group
 
     print("Image:", img['name'])
 
@@ -312,50 +391,51 @@ def transformMapGroup(map_group):
     # Pre-multiply transformation matrices
     m = np.matmul(m1_inv, m2)
 
-    graphics_new = []
-    print("Processing graphics:", len(graphics))
-    for i in range(len(graphics)):
-        col = None
-        if graphics[i]['colour'] is not None:
-            #print("got colour state:", graphics[i]['colour'])
-            # Get stroke colour specification
-            col_spec = graphics[i]['colour']['stroke']
-            if col_spec['type'] is None:
-                fill_col = graphics[i]['colour']['nonstroke']
-                if fill_col['type'] == 'rgb':
-                    # Use fill colour specification
-                    col_spec = fill_col
-            if col_spec['type'] == 'rgb':
-                # Set rgb colour
-                col = tuple(col_spec['val'])
-            elif col_spec['type'] == 'gs':
-                # Set grayscale colour
-                col = tuple(col_spec['val']) * 3
-            else:
-                col = (0.,0.,0.)
-        contour = []
-        for curve in graphics[i]['path']['contour']:
-            ## Relocate curve according to new coordinate system
-            nodes = curve.nodes
-            nodes_new = []
-            for i in range(len(nodes.T)):
-                # Multiply node by combined transformation matrix m to
-                # get coordinates with respect to image space and
-                # transform from canonical image coords to PlateCarree
-                # map projection
-                v = np.matmul(np.append(nodes.T[i], 1), m)
-                nodes_new.append(v[:-1])
-            nodes = np.array(nodes_new).T
-            curve_new = bezier.Curve.from_nodes(nodes)
-            contour.append(curve_new)
-        # Relocate centroid i
-        centroid = np.matmul(np.append(graphics[i]['path']['centroid'], 1), m)[:-1]
-        path = { 'colour': col,
-                 'contour': contour,
-                 'centroid': centroid }
-        graphics_new.append({ 'path': path})
+    graphics_list = []
+    print("Processing graphics:", len(graphics_dict))
+    for z, graphics in graphics_dict.items():
+        print("Got", len(graphics), "graphics objects with centroid:", z)
 
-    return (img, graphics_new)
+        stroke_col = None
+        fill_col = None
+        #breakpoint()
+        for i in range(len(graphics)):
+
+            col = graphics[i]['colour']
+            if col is not None:
+                print("got colour state:", col)
+                # Get stroke colour specification
+                if col['type'] == "stroke":
+                    stroke_col = getColourValue(col)
+                # Get fill colour specification
+                if col['type'] == "fill":
+                    fill_col = getColourValue(col)
+
+            contour = []
+            for curve in graphics[i]['path']['contour']:
+                ## Relocate curve according to new coordinate system
+                nodes = curve.nodes
+                nodes_new = []
+                for j in range(len(nodes.T)):
+                    # Multiply node by combined transformation matrix m to
+                    # get coordinates with respect to image space and
+                    # transform from canonical image coords to PlateCarree
+                    # map projection
+                    v = np.matmul(np.append(nodes.T[j], 1), m)
+                    nodes_new.append(v[:-1])
+                nodes = np.array(nodes_new).T
+                curve_new = bezier.Curve.from_nodes(nodes)
+                contour.append(curve_new)
+
+            # Relocate centroid i
+            centroid = np.matmul(np.append(graphics[i]['path']['centroid'], 1), m)[:-1]
+            path = { 'colour': { 'stroke': stroke_col,
+                                 'fill': fill_col },
+                     'contour': contour,
+                     'centroid': centroid }
+            graphics_list.append({ 'path': path})
+
+    return (img, graphics_list)
     ## end of transformMapGroup()
 
 def plotMapGroup(map_group, ax):
@@ -400,9 +480,9 @@ def getAlertMasks(map_group):
     mask_list = []
     for i in range(len(graphics)):
         col = graphics[i]['path']['colour']
-        if col is not None and col.count(col[0]) != 3:
+        print(col)
+        if col['stroke'] is not None and col['stroke'].count(col['stroke'][0]) != 3:
             # got a contour with RGB colour
-            print(col)
             alert_val = 0
             r, g, b = col
             if col == (0.0, 0.0, 0.0):
@@ -492,10 +572,16 @@ def createGriddedData(map_groups, alert_data, file_path=None):
         n = 0
 
         for j, gfx in enumerate(graphics):
-            col = gfx['path']['colour']
+            colour = gfx['path']['colour']
+            print(colour)
             #breakpoint()
-            if col is not None and col.count(col[0]) != 3:
-                # got a contour with RGB colour
+            col = None
+            if colour['stroke'] is not None and len(colour['stroke']) == 3:
+                col = colour['stroke']
+            elif colour['fill'] is not None and len(colour['fill']) == 3:
+                col = colour['fill']
+            if col is not None:
+                # got a contour with associated RGB colour
                 print(col)
                 alert_val = 0
                 r, g, b = col
@@ -504,12 +590,16 @@ def createGriddedData(map_groups, alert_data, file_path=None):
                 elif col == (1.0, 1.0, 0.0):
                     print("colour: yellow")
                     alert_val = 1
-                elif g > 0.33 and g < 0.66:
+                elif col == (1.0, 0.0, 0.0):
+                    print("colour: red")
+                    alert_val = 3
+                elif g > 0.25 and g < 0.66:
                     # (0.89, 0.424, 0.0392)
                     # (0.969, 0.588, 0.275)
+                    # (0.596, 0.282, 0.0275)
                     print("colour: orange")
                     alert_val = 2
-                elif g < 0.33:
+                elif r > 0.9 and g < 0.25:
                     print("colour: red")
                     alert_val = 3
                 else:
@@ -577,41 +667,7 @@ def main():
         print("Input file not found:", args.filepath[0])
         sys.exit(4)
 
-    path_ops = {'m', 'c', 'l'}
-    term_ops = {'f*', 'S', 'n', 'h'}
-    col_ops = {'rg', 'RG', 'g', 'G'}
-    block = []
-    graphics = []
-    images = []
-    col = None
-    # Iterate over the lines
-    for line in lines:
-        if line.endswith(tuple(path_ops)):
-            #print("got path operator")
-            block.append(line)
-        elif line.endswith(tuple(term_ops)):
-            #print("got terminating path operator")
-            block.append(line)
-            path = processBlock(list(block))
-            if len(path['contour']):
-                graphics.append({'path': path, 'colour': col})
-            del block[:]
-        elif line.endswith(tuple(col_ops)):
-            block.append(line)
-            col = processColour(line)
-        elif "Do" in line:
-            #print("got image operator")
-            block.append(line)
-            image = processImage(list(block))
-            if len(image):
-                images.append(image)
-            del block[:]
-        else:
-            block.append(line)
-
-    print(len(graphics))
-    print(len(graphics[0]['path']))
-    print(len(images))
+    images, graphics = extractGraphics(lines)
 
     mgroups = getMapGroups(images, graphics)
     mgroups = [transformMapGroup(mg) for mg in mgroups]
@@ -622,40 +678,9 @@ def main():
     except FileNotFoundError:
         print("Couldn't read metadata file:", args.metadata[0])
     else:
-        fn = args.metadata[0].split(".")[0].split("/")[-1] + ".nc"
-        createGriddedData(mgroups, alert_data, fn)
+        file_name = os.path.basename(args.metadata[0]).split(".")[0] + ".nc"
+        createGriddedData(mgroups, alert_data, file_name)
 
-    # am = getAlertMasks(mgroups[0])
-    # #fig, axs = plt.subplots(1, len(am))
-    # fig, ax = plt.subplots()
-    # #for m, ax in zip(am, axs.flat):
-    # for m in am:
-    #     print(m.shape)
-    #     ax.imshow(m, origin = 'lower', alpha=.3, vmin=0, vmax=1)
-    # plt.show()
-
-    # # Downloaded from https://biogeo.ucdavis.edu/data/gadm3.6/shp/gadm36_TZA_shp.zip
-    # shp_fname = '../../mapping/gadm/shapefile/gadm36_TZA_1.shp'
-    # adm1_shapes = list(shpreader.Reader(shp_fname).geometries())
-
-    # #createPlot(images, graphics)
-    # fig, axs = plt.subplots(1, 4, subplot_kw={'projection': ccrs.PlateCarree()})
-    # for mg, ax in zip(mgroups, axs.flat):
-
-    #     ax.set_extent(extent_MAP_IMG, ccrs.PlateCarree())
-    #     ax.coastlines(resolution='10m')
-    #     ax.add_feature(cfeature.LAND)
-    #     ax.add_feature(cfeature.LAKES, alpha=0.5)
-    #     ax.add_geometries(adm1_shapes, ccrs.PlateCarree(),
-    #                       edgecolor='black', facecolor='gray', alpha=0.5)
-    #     arr_img = plt.imread(MAP_IMG, format='png')
-    #     ax.imshow(arr_img, interpolation='none',
-    #               origin='upper',
-    #               extent=extent_MAP_IMG,
-    #               clip_on=True)
-
-    #     plotMapGroup(mg, ax)
-    # plt.show()
     ## end of main()
 
 # Run main
