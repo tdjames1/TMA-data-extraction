@@ -178,7 +178,7 @@ def main():
     in_fmt = "%Y-%m-%d"
     out_fmt = "%d-%m-%Y"
 
-    for f in files[0:1]:
+    for f in files:
         src = "/".join((input_dir, f))
         dst = "/".join((output_dir, f))
         copyfile(src, dst)
