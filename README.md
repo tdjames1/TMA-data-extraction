@@ -33,7 +33,8 @@ it can be activated manually:
 conda activate tma_data_extraction
 ```
 
-The code uses a third-party script `pdf-parser.py` to extract PDF
+The code uses a third-party script `pdf-parser.py` (available at 
+https://blog.didierstevens.com/programs/pdf-tools/) to extract PDF
 contents. Ensure that this script is available by placing it in the
 root directory or by specifying its location in a `PDF_PARSER_ROOT`
 environment variable:
