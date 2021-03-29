@@ -52,7 +52,7 @@ else
 fi
 unset __conda_setup
 
-conda activate tma_data_extraction
+conda activate notebook
 
 # Parse PDFs to get page contents
 bash script/parse.sh $data_dir $TEMP_DIR > $log_file

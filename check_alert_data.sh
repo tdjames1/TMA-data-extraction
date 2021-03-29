@@ -41,7 +41,7 @@ else
 fi
 unset __conda_setup
 
-conda activate tma_data_extraction
+conda activate notebook
 
 python python/tma_alert_check.py $data_dir $out_dir
 
