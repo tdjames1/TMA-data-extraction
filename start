@@ -1,0 +1,2 @@
+#!/bin/bash
+export PDF_PARSER_ROOT=python
