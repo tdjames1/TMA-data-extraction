@@ -4,6 +4,7 @@ channels:
   - defaults
 dependencies:
   - python=3
+  - pip
   - numpy
   - libbezier
   - matplotlib
@@ -17,3 +18,4 @@ dependencies:
   - xarray
   - pip:
     - bezier
+  - netcdf4
