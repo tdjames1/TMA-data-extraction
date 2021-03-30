@@ -30,8 +30,16 @@ fi
 
 if [ -z ${PDF_PARSER_ROOT:+x} ]
 then
-    # If not set or set but NULL, assume script is in current directory
-    export PDF_PARSER_ROOT=$(pwd)
+    # If not set or set but NULL, assume script is in python directory
+    export PDF_PARSER_ROOT=$(pwd)/python
+fi
+
+if [ -z ${R_LIBS_USER:+x} ]
+then
+    # If not set or set but NULL, set to location of conda R libs
+    export R_LIBS_USER=${CONDA_PATH}/lib/R/library
+else
+    echo "R_LIBS_USER="${R_LIBS_USER}
 fi
 
 # Set up temporary data for intermediate files and specify log file
