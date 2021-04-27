@@ -243,8 +243,11 @@ def processImage(lines):
         elif op == "re":
             rect = np.array(s[:-1], dtype = float)
         elif op == "cm":
-            ctm = np.array(s[:-1], dtype = float)
-            print("[IMG] ctm:", ctm)
+            try:
+                ctm = np.array(s[-7:-1], dtype = float)
+                print("[IMG] ctm:", ctm)
+            except ValueError as e:
+                print("Error setting CTM from", s, ": ", e)
         elif op == "Q":
             if s[-2] == "Do":
                 name = s[-3]
