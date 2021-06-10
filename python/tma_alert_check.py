@@ -23,7 +23,7 @@ Example:
 import sys
 import argparse
 import fnmatch
-from os import listdir, mkdir
+from os import listdir, mkdir, path
 from shutil import copyfile
 from datetime import datetime
 from warnings import simplefilter, catch_warnings
@@ -220,6 +220,21 @@ def main():
             check_alert_level(nc, v)
             check_alert_type(nc, v)
             check_alert_flag(nc, v)
+
+            msg = "Save plot (y/n)? "
+            opt = ('y', 'n')
+            save_plot = check_value(msg, opt)
+
+            if save_plot is not None:
+                plot_dir = path.join(output_dir, "plots")
+                try:
+                    mkdir(plot_dir)
+                except FileExistsError:
+                    pass
+
+                file_name = '{}_{}.png'.format(path.splitext(f)[0], v)
+                file_path = path.join(plot_dir, file_name)
+                plt.savefig(file_path)
 
             plt.close()
             print("Please wait for the next figure to be plotted...\n")
