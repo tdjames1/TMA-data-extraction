@@ -5,7 +5,7 @@ E_NODIR=67
 
 if [ -z "$1" ]
 then
-  echo "Usage: `basename $0` data_dir out_dir"
+  echo "Usage: `basename $0` data_dir out_dir [plot_dir]"
   exit $E_NOARGS
 else
     if [ -d "$1" ]
@@ -28,6 +28,16 @@ else
     exit $E_NODIR
 fi
 
+if [ -n "$3" ]
+then
+    plot_dir="${3%/}/"
+    if [ ! -d "$3" ]
+    then
+        # Create plot directory
+        mkdir -p $plot_dir
+    fi
+fi
+
 __conda_setup="$($CONDA_EXE 'shell.bash' 'hook' 2> /dev/null)"
 if [ $? -eq 0 ]; then
     eval "$__conda_setup"
@@ -43,6 +53,6 @@ unset __conda_setup
 
 conda activate tma_data_extraction
 
-python python/tma_alert_check.py $data_dir $out_dir
+python python/tma_alert_check.py $data_dir $out_dir `[[ -n $plot_dir ]] && echo '--save-plots '$plot_dir`
 
 conda deactivate
