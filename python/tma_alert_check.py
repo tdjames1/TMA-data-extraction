@@ -31,13 +31,18 @@ from warnings import simplefilter, catch_warnings
 import netCDF4
 import numpy as np
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def plot_alert(lon, lat, dat, extent = None, title = None):
+def plot_alert(lon, lat, dat, extent = None, title = None, save_plots = False):
+
+    if save_plots:
+        # Use non-interactive backend
+        mpl.use('agg')
 
     cmap = ListedColormap([(1,1,1,0), "yellow", "orange", "red"])
 
@@ -62,7 +67,8 @@ def plot_alert(lon, lat, dat, extent = None, title = None):
     if title is not None:
         plt.title(title)
 
-    plt.show(block=False)
+    if not save_plots:
+        plt.show(block=False)
     # end plot_alert()
 
 def check_value(prompt, vals, retries=4, reminder='Please try again!'):
@@ -164,6 +170,8 @@ def main():
     parser = argparse.ArgumentParser(description='Check TMA alert data')
     parser.add_argument('input_dir', nargs=1, type=str)
     parser.add_argument('output_dir', nargs=1, type=str)
+    parser.add_argument('-s', '--save-plots',
+                        nargs='?', type=str, const=True)
     args = parser.parse_args()
 
     input_dir = args.input_dir[0]
@@ -174,6 +182,16 @@ def main():
         mkdir(output_dir)
     except FileExistsError:
         print("Using existing output directory")
+
+    save_plots = args.save_plots
+    if save_plots:
+        plot_dir = (save_plots if isinstance(save_plots, str)
+                    else path.join(output_dir, "plots"))
+        print(f"Saving plots to {plot_dir}")
+        try:
+            mkdir(plot_dir)
+        except FileExistsError:
+            pass
 
     in_fmt = "%Y-%m-%d"
     out_fmt = "%d-%m-%Y"
@@ -207,8 +225,16 @@ def main():
 
             with catch_warnings():
                 simplefilter("ignore")
-                plot_alert(lon, lat, masked_data, extent, title)
-                plt.pause(0.0001)
+                plot_alert(lon, lat, masked_data, extent, title, save_plots)
+                if not save_plots:
+                    plt.pause(0.0001)
+
+            if save_plots:
+                file_name = '{}_{}.png'.format(path.splitext(f)[0], v)
+                file_path = path.join(plot_dir, file_name)
+                plt.savefig(file_path)
+                plt.close()
+                continue
 
             print("")
             print("### Reviewing alert data for TMA warning issued on", issue_date, "###")
@@ -242,11 +268,12 @@ def main():
         # write to file
         nc.close()
 
-        msg = "Finished reviewing warnings for {:"+out_fmt+"}. Continue (y/n)? "
-        opt = ('y', 'n')
-        ctn = check_value(msg.format(issue_dt), opt)
-        if ctn == "n":
-            return
+        if not save_plots:
+            msg = "Finished reviewing warnings for {:"+out_fmt+"}. Continue (y/n)? "
+            opt = ('y', 'n')
+            ctn = check_value(msg.format(issue_dt), opt)
+            if ctn == "n":
+                return
 
     print("Finished reviewing TMA weather warning data")
     # end of main()
